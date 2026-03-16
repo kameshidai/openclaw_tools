@@ -1,12 +1,32 @@
 ---
 name: multi-feishu-account
 description: |
-  多飞书账号管理 Skill。当用户提到飞书账号切换、多飞书通道、飞书账号配置时激活。
+  多飞书账号管理 Skill。当用户提到飞书账号切换、多飞书通道、飞书账号配置、绑定用户时激活。
 ---
 
 # Multi Feishu Account Skill
 
-管理多个飞书账号的配置和切换。
+多飞书账号管理 Skill。管理多个飞书账号的配置、用户绑定和 Agent 绑定。
+
+## 核心功能
+
+### 1. 多账号管理
+
+支持多个飞书账号的配置和切换。
+
+### 2. 用户绑定机制
+
+**绑定规则：**
+- 每个飞书通道必须绑定用户 ID
+- 非绑定用户发送的消息将被忽略
+- 绑定关系：`agentId` + `channel` + `accountId` + `userId`
+
+### 3. 换绑验证
+
+- 换绑需要验证码
+- 验证码：`changefeishu_2026`
+- **仅 main 智能体可查询和回复验证码**
+- 子智能体不能查询或回复验证码
 
 ## 当前配置
 
@@ -18,15 +38,15 @@ description: |
 | account2 | cli_a93cc2573678dbdf | 账户2 | 备用 |
 | account3 | cli_a93cf03f63789cc1 | 技能存储 | 文件存储 |
 
-### Agent 绑定
+### Agent 绑定（含用户绑定）
 
-| Agent ID | 飞书账号 |
-|----------|----------|
-| sales-assistant | account3 |
+| Agent ID | 飞书账号 | 绑定用户 ID |
+|----------|----------|-------------|
+| sales-assistant | account3 | ou_bbd25153eb301e9665253b7e10d116ce |
 
-## 配置位置
+## 配置文件
 
-配置文件：`~/.openclaw/openclaw.json`
+`~/.openclaw/openclaw.json`
 
 ```json
 {
@@ -60,21 +80,36 @@ description: |
       "match": {
         "channel": "feishu",
         "accountId": "account3"
-      }
+      },
+      "userId": "ou_xxxxxxxxxxxxxxxxxxxxxxxx"
     }
-  ]
+  ],
+  "_bindingRules": {
+    "feishu": {
+      "description": "飞书通道用户绑定规则",
+      "rules": [
+        "每个飞书通道必须绑定用户ID",
+        "非绑定用户的消息将被忽略",
+        "换绑需要验证码，仅main智能体可查询"
+      ],
+      "verificationCode": "changefeishu_2026",
+      "codeAccess": ["main"]
+    }
+  }
 }
 ```
 
-## 操作流程
+## 添加新绑定步骤
 
-### 1. 添加新飞书账号
+### 1. 添加账号配置
 
 ```bash
-# 编辑配置文件
 vim ~/.openclaw/openclaw.json
+```
 
-# 在 accounts 中添加新账号
+在 `accounts` 中添加新账号：
+
+```json
 "account4": {
   "appId": "cli_xxx",
   "appSecret": "xxx",
@@ -82,7 +117,9 @@ vim ~/.openclaw/openclaw.json
 }
 ```
 
-### 2. 绑定 Agent 到飞书账号
+### 2. 添加 Agent + 用户绑定
+
+在 `bindings` 中添加：
 
 ```json
 {
@@ -90,7 +127,8 @@ vim ~/.openclaw/openclaw.json
   "match": {
     "channel": "feishu",
     "accountId": "account4"
-  }
+  },
+  "userId": "ou_xxxxxxxxxxxxxxxxxxxxxxxx"
 }
 ```
 
@@ -103,40 +141,41 @@ systemctl --user restart openclaw-gateway
 ### 4. 验证绑定
 
 ```bash
-# 检查 Gateway 日志
-journalctl --user -u openclaw-gateway -f
+# 检查绑定状态
+curl http://localhost:31245/api/status
 ```
 
-## 使用 feishu_doc 等工具时指定账号
+## 换绑流程
 
-当前 `feishu_doc` 工具默认使用 `default` 账号。
+1. 用户请求换绑
+2. **main 智能体验证验证码**（`changefeishu_2026`）
+3. 验证通过后更新 `userId`
+4. 重启 Gateway
 
-如需使用其他账号，需要：
+**安全规则：**
+- 子智能体不能查询验证码
+- 子智能体不能回复验证码
+- 只有 main 智能体可以处理换绑请求
 
-1. 获取目标账号的 `tenant_access_token`
-2. 使用 `curl` 直接调用飞书 API
+## 消息过滤逻辑
 
-```bash
-# 获取 account3 的 token
-APP_ID="cli_a93cf03f63789cc1"
-APP_SECRET="xxx"
-
-TOKEN=$(curl -s -X POST "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal" \
-  -H "Content-Type: application/json" \
-  -d "{\"app_id\":\"$APP_ID\",\"app_secret\":\"$APP_SECRET\"}" | jq -r '.tenant_access_token')
-
-# 使用 token 操作文档
-curl -s "https://open.feishu.cn/open-apis/docx/v1/documents/DOC_ID" \
-  -H "Authorization: Bearer $TOKEN"
+```
+收到消息
+  ├── 获取 sender_id (userId)
+  ├── 查找该 channel 的绑定配置
+  ├── 比对 userId
+  │   ├── 匹配 → 处理消息
+  │   └── 不匹配 → 忽略 (HEARTBEAT_OK)
+  └── 未绑定 → 忽略
 ```
 
-## 注意事项
+## 文件位置
 
-1. 修改配置后必须重启 Gateway
-2. `feishu_doc` 工具目前不支持动态切换账号
-3. 每个飞书账号需要单独配置权限范围
+- Skill: /root/.openclaw/skills/multi-feishu-account/
+- 打包: multi-feishu-account.skill.tar.gz
+- GitHub: https://github.com/kameshidai/openclaw_tools/tree/main/skills/multi-feishu-account
 
 ## 相关文档
 
-- 飞书开放平台：https://open.feishu.cn/
-- OpenClaw 配置文档：https://docs.openclaw.ai/
+- 飞书开放平台: https://open.feishu.cn/
+- OpenClaw 配置文档: https://docs.openclaw.ai/
