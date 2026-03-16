@@ -10,10 +10,15 @@ import subprocess
 import json
 import os
 from datetime import datetime
-from flask import Flask, jsonify, request, send_from_directory, session
+from flask import Flask, jsonify, request, render_template, session
 from flask_cors import CORS
 
-app = Flask(__name__)
+# 获取正确的模板和静态文件路径
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
+STATIC_DIR = os.path.join(BASE_DIR, 'static')
+
+app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 app.secret_key = os.urandom(24)
 CORS(app)
 
@@ -149,11 +154,11 @@ def get_system_metrics():
 
 @app.route('/')
 def index():
-    return send_from_directory('templates', 'index.html')
+    return render_template('index.html')
 
 @app.route('/login')
 def login_page():
-    return send_from_directory('templates', 'login.html')
+    return render_template('login.html')
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -207,9 +212,7 @@ def restart():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/static/<path:path>')
-def serve_static(path):
-    return send_from_directory('static', path)
+# 静态文件由 Flask 自动处理
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=False)
