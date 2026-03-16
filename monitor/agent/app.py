@@ -8,6 +8,7 @@ OpenClaw Monitor Agent
 
 import os
 import json
+import socket
 from datetime import datetime
 from flask import Flask, jsonify
 from flask_cors import CORS
@@ -15,11 +16,52 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
+# 缓存文件路径
+CACHE_DIR = os.path.expanduser("~/.openclaw/monitor_cache")
+CACHE_FILE = os.path.join(CACHE_DIR, "version_cache.json")
+CACHE_DURATION = 24 * 60 * 60  # 24小时
+
+def ensure_cache_dir():
+    """确保缓存目录存在"""
+    if not os.path.exists(CACHE_DIR):
+        os.makedirs(CACHE_DIR)
+
+def read_cache():
+    """读取缓存"""
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r') as f:
+                data = json.load(f)
+                # 检查是否过期
+                if time.time() - data.get('timestamp', 0) < CACHE_DURATION:
+                    return data
+    except:
+        pass
+    return None
+
+def write_cache(data):
+    """写入缓存"""
+    try:
+        ensure_cache_dir()
+        data['timestamp'] = time.time()
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(data, f)
+    except:
+        pass
+
 def get_openclaw_version():
-    """获取 OpenClaw 版本 - 从 package.json 读取"""
+    """获取 OpenClaw 版本 - 从缓存或读取"""
+    import time
+    
+    # 尝试从缓存读取
+    cache = read_cache()
+    if cache and 'version' in cache:
+        return cache['version']
+    
+    # 缓存不存在或过期，重新获取
+    version = "OpenClaw"
     try:
         import glob
-        # 查找 openclaw package.json
         patterns = [
             "/root/.local/share/pnpm/global/*/node_modules/openclaw/package.json",
             "/usr/local/lib/node_modules/openclaw/package.json",
@@ -29,15 +71,18 @@ def get_openclaw_version():
             if matches:
                 with open(matches[0], 'r') as f:
                     data = json.load(f)
-                    return f"OpenClaw {data.get('version', 'unknown')}"
-        return "OpenClaw 2026.3.8"
+                    version = f"OpenClaw {data.get('version', 'unknown')}"
+                    break
     except:
-        return "OpenClaw"
+        pass
+    
+    # 写入缓存
+    write_cache({'version': version})
+    return version
 
 def get_gateway_status():
     """快速检查 Gateway 状态 - 通过端口检查"""
     try:
-        import socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
         result = sock.connect_ex(('127.0.0.1', 31245))
@@ -65,18 +110,16 @@ def get_agents_status():
     except:
         pass
     
-    # 如果没有找到，返回默认
     if not agents:
         agents = [
-            {"name": "main", "status": "running", "last_active": "recently"},
-            {"name": "sales", "status": "running", "last_active": "recently"}
+            {"name": "main", "status": "running", "last_active": "recently"}
         ]
     return agents
 
 def get_system_metrics():
     """获取系统指标"""
     try:
-        # CPU 使用率 - 快速读取
+        # CPU 使用率
         cpu_usage = "0%"
         try:
             with open('/proc/stat', 'r') as f:
@@ -140,18 +183,17 @@ def get_system_metrics():
             "cpu": "N/A",
             "memory": "N/A",
             "disk": "N/A",
-            "uptime": "N/A",
-            "error": str(e)
+            "uptime": "N/A"
         }
 
 @app.route('/health')
 def health():
-    """健康检查 - 快速响应"""
+    """健康检查"""
     return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
 
 @app.route('/api/status')
 def status():
-    """获取完整状态 - 供 Monitor UI 调用"""
+    """获取完整状态"""
     return jsonify({
         "version": get_openclaw_version(),
         "status": get_gateway_status(),
@@ -186,10 +228,22 @@ def restart():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/cache/clear', methods=['POST'])
+def clear_cache():
+    """清除缓存"""
+    try:
+        if os.path.exists(CACHE_FILE):
+            os.remove(CACHE_FILE)
+        return jsonify({"success": True, "message": "缓存已清除"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
 if __name__ == '__main__':
+    import time
     port = int(os.environ.get('MONITOR_AGENT_PORT', 9090))
 
     print(f"🦊 OpenClaw Monitor Agent starting on port {port}")
     print(f"📍 Status API: http://localhost:{port}/api/status")
+    print(f"📦 Cache file: {CACHE_FILE}")
 
     app.run(host='0.0.0.0', port=port, debug=False)
