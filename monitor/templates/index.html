@@ -28,7 +28,7 @@
             <button class="btn-icon" id="themeToggle" title="切换主题">
                 <span class="icon" id="themeIcon">🌙</span>
             </button>
-            <button class="btn-icon btn-danger" id="restartBtn" title="重启 OpenClaw">
+            <button class="btn-icon" id="refreshBtn" title="刷新数据">
                 <span class="icon">🔄</span>
             </button>
             <button class="btn-icon" id="logoutBtn" title="退出登录">
@@ -93,27 +93,6 @@
             </div>
         </div>
     </footer>
-
-    <!-- Restart Confirm Modal -->
-    <div class="modal-overlay" id="restartModal" style="display: none;">
-        <div class="modal-card">
-            <div class="modal-header">
-                <h3>⚠️ 重启确认</h3>
-            </div>
-            <div class="modal-body">
-                <p>确定要重启 OpenClaw Gateway 吗？</p>
-                <p class="warning-text">此操作将中断当前运行的所有服务。</p>
-                <div class="form-group">
-                    <label>请输入 <code>checkok</code> 确认:</label>
-                    <input type="text" id="confirmInput" placeholder="输入 checkok" autocomplete="off">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" id="cancelRestart">取消</button>
-                <button class="btn-danger" id="confirmRestart" disabled>确认重启</button>
-            </div>
-        </div>
-    </div>
 
     <script src="/static/js/app.js"></script>
 </body>
