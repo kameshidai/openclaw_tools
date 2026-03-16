@@ -57,7 +57,7 @@ case "$1" in
     restart)
         $0 stop
         sleep 1
-        $0 start
+        AGENT_URL="$AGENT_URL" $0 start
         ;;
         
     *)
