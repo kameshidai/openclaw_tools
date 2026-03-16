@@ -133,14 +133,23 @@ def get_gateway_status():
 
 def get_agents_status():
     """获取智能体状态 - 从工作目录读取"""
+    # 智能体别名映射
+    ALIAS_MAP = {
+        "main": "运维",
+        "sales": "销售",
+        "finance": "财务"
+    }
+    
     agents = []
     try:
         workspace_dir = os.path.expanduser("~/.openclaw")
         for name in os.listdir(workspace_dir):
             if name.startswith("workspace-"):
                 agent_name = name.replace("workspace-", "")
+                alias = ALIAS_MAP.get(agent_name, agent_name)
                 agents.append({
                     "name": agent_name,
+                    "alias": alias,
                     "status": "running",
                     "last_active": "recently"
                 })
@@ -149,7 +158,7 @@ def get_agents_status():
     
     if not agents:
         agents = [
-            {"name": "main", "status": "running", "last_active": "recently"}
+            {"name": "main", "alias": "运维", "status": "running", "last_active": "recently"}
         ]
     return agents
 

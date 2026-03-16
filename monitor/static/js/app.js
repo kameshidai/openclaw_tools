@@ -169,12 +169,15 @@ function renderData(data) {
 }
 
 function renderAgents(agents) {
-    elements.agentsGrid.innerHTML = agents.map(agent => `
+    elements.agentsGrid.innerHTML = agents.map(agent => {
+        const displayName = agent.alias || agent.name;
+        const nameNote = agent.alias ? `<span class="name-note">(${agent.name})</span>` : '';
+        return `
         <div class="agent-card">
             <div class="agent-header">
                 <div class="agent-name">
                     <span>🤖</span>
-                    ${escapeHtml(agent.name)}
+                    ${escapeHtml(displayName)} ${nameNote}
                 </div>
                 <span class="agent-status ${agent.status}">
                     ${agent.status === 'running' ? '● 运行中' : '○ 已停止'}
@@ -184,7 +187,7 @@ function renderAgents(agents) {
                 <span>🕐 最后活动: ${escapeHtml(agent.last_active || 'N/A')}</span>
             </div>
         </div>
-    `).join('');
+    `}).join('');
     
     // 如果没有智能体
     if (agents.length === 0) {
