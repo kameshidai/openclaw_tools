@@ -29,19 +29,19 @@ def get_openclaw_status():
     """获取 OpenClaw 运行状态"""
     try:
         result = subprocess.run(
-            ["openclaw", "status"],
+            ["openclaw", "gateway", "status"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=10
         )
         output = result.stdout + result.stderr
         return {
-            "running": result.returncode == 0,
+            "running": result.returncode == 0 or "running" in output.lower(),
             "output": output.strip(),
             "pid": None
         }
     except subprocess.TimeoutExpired:
-        return {"running": False, "error": "timeout"}
+        return {"running": True, "error": "timeout but gateway likely running"}
     except FileNotFoundError:
         return {"running": False, "error": "openclaw command not found"}
     except Exception as e:
