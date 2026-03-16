@@ -2,13 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-OpenClaw Monitor API
-提供监控页面所需的数据接口
+OpenClaw Monitor UI
+前端展示页面，从 Monitor Agent 获取数据
 """
 
-import subprocess
-import json
 import os
+import requests
 from datetime import datetime
 from flask import Flask, jsonify, request, render_template, session
 from flask_cors import CORS
@@ -26,131 +25,31 @@ CORS(app)
 ADMIN_USERNAME = "clawadmin"
 ADMIN_PASSWORD = "clawadmin123456"
 
-def get_openclaw_status():
-    """获取 OpenClaw 运行状态"""
-    try:
-        result = subprocess.run(
-            ["openclaw", "status"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        return {
-            "running": result.returncode == 0,
-            "output": result.stdout if result.returncode == 0 else result.stderr
-        }
-    except Exception as e:
-        return {"running": False, "error": str(e)}
+# Monitor Agent API 地址（本地 OpenClaw 服务器）
+# 开发环境：localhost，生产环境：通过环境变量配置
+MONITOR_AGENT_URL = os.environ.get('MONITOR_AGENT_URL', 'http://localhost:9090')
 
-def get_openclaw_version():
-    """获取 OpenClaw 版本"""
+def get_agent_data():
+    """从 Monitor Agent 获取数据"""
     try:
-        result = subprocess.run(
-            ["openclaw", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=3
-        )
-        return result.stdout.strip() if result.returncode == 0 else "Unknown"
-    except:
-        return "Unknown"
-
-def get_agents_status():
-    """获取智能体状态"""
-    try:
-        result = subprocess.run(
-            ["openclaw", "agents", "list"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        # 解析输出，构建智能体列表
-        agents = []
-        lines = result.stdout.split('\n')
-        for line in lines:
-            if line.strip() and not line.startswith('-'):
-                parts = line.split()
-                if len(parts) >= 2:
-                    agents.append({
-                        "name": parts[0],
-                        "status": "running" if "running" in line.lower() else "stopped",
-                        "last_active": "2 min ago"
-                    })
-        
-        # 如果没有获取到，返回示例数据
-        if not agents:
-            agents = [
-                {"name": "sales-assistant", "status": "running", "last_active": "30s ago"},
-                {"name": "monitor-agent", "status": "running", "last_active": "1m ago"},
-                {"name": "health-check", "status": "stopped", "last_active": "5m ago"}
-            ]
-        return agents
+        response = requests.get(f"{MONITOR_AGENT_URL}/api/status", timeout=5)
+        if response.status_code == 200:
+            return response.json()
+        return {"error": f"Agent returned {response.status_code}"}
+    except requests.exceptions.ConnectionError:
+        return {"error": "无法连接到 Monitor Agent", "agent_url": MONITOR_AGENT_URL}
+    except requests.exceptions.Timeout:
+        return {"error": "Monitor Agent 响应超时"}
     except Exception as e:
-        return [
-            {"name": "sales-assistant", "status": "running", "last_active": "30s ago"},
-            {"name": "monitor-agent", "status": "running", "last_active": "1m ago"}
-        ]
+        return {"error": str(e)}
 
-def get_system_metrics():
-    """获取系统指标"""
+def restart_agent():
+    """通过 Monitor Agent 重启 OpenClaw"""
     try:
-        # CPU 使用率
-        cpu_result = subprocess.run(
-            ["top", "-bn1"],
-            capture_output=True,
-            text=True,
-            timeout=3
-        )
-        cpu_line = [l for l in cpu_result.stdout.split('\n') if 'Cpu(s)' in l]
-        cpu_usage = "0%"
-        if cpu_line:
-            import re
-            match = re.search(r'(\d+\.?\d*)\s*us', cpu_line[0])
-            if match:
-                cpu_usage = f"{match.group(1)}%"
-        
-        # 内存使用
-        mem_result = subprocess.run(
-            ["free", "-m"],
-            capture_output=True,
-            text=True,
-            timeout=3
-        )
-        mem_total, mem_used = 0, 0
-        for line in mem_result.stdout.split('\n'):
-            if line.startswith('Mem:'):
-                parts = line.split()
-                mem_total, mem_used = int(parts[1]), int(parts[2])
-                break
-        mem_usage = f"{mem_used}/{mem_total} MB ({mem_used/mem_total*100:.1f}%)" if mem_total else "N/A"
-        
-        # 磁盘使用
-        disk_result = subprocess.run(
-            ["df", "-h", "/"],
-            capture_output=True,
-            text=True,
-            timeout=3
-        )
-        disk_usage = "N/A"
-        for line in disk_result.stdout.split('\n')[1:]:
-            if line:
-                parts = line.split()
-                disk_usage = parts[4] if len(parts) >= 5 else "N/A"
-                break
-        
-        return {
-            "cpu": cpu_usage,
-            "memory": mem_usage,
-            "disk": disk_usage,
-            "uptime": "N/A"
-        }
+        response = requests.post(f"{MONITOR_AGENT_URL}/api/restart", timeout=5)
+        return response.json()
     except Exception as e:
-        return {
-            "cpu": "15.2%",
-            "memory": "512/2048 MB (25%)",
-            "disk": "45%",
-            "uptime": "3 days 2 hours"
-        }
+        return {"success": False, "error": str(e)}
 
 @app.route('/')
 def index():
@@ -185,44 +84,47 @@ def check_auth():
 
 @app.route('/api/status')
 def status():
+    """获取状态 - 从 Agent API 获取"""
+    if not session.get('logged_in'):
+        return jsonify({"error": "未登录"}), 401
+    
+    data = get_agent_data()
+    
+    # 添加 UI 层信息
+    data['ui_timestamp'] = datetime.now().isoformat()
+    data['agent_url'] = MONITOR_AGENT_URL
+    
+    return jsonify(data)
+
+@app.route('/api/restart', methods=['POST'])
+def restart():
+    """重启 OpenClaw - 通过 Agent API"""
+    if not session.get('logged_in'):
+        return jsonify({"error": "未登录"}), 401
+    
+    result = restart_agent()
+    return jsonify(result)
+
+@app.route('/api/config')
+def config():
+    """获取配置信息"""
     if not session.get('logged_in'):
         return jsonify({"error": "未登录"}), 401
     
     return jsonify({
-        "version": get_openclaw_version(),
-        "status": get_openclaw_status(),
-        "agents": get_agents_status(),
-        "metrics": get_system_metrics(),
-        "timestamp": datetime.now().isoformat()
+        "agent_url": MONITOR_AGENT_URL,
+        "ui_version": "1.0.0"
     })
 
-@app.route('/api/restart', methods=['POST'])
-def restart():
-    if not session.get('logged_in'):
-        return jsonify({"error": "未登录"}), 401
-    
-    try:
-        # 异步执行重启，避免阻塞请求
-        subprocess.Popen(
-            ["openclaw", "gateway", "restart"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        return jsonify({"success": True, "message": "OpenClaw 重启中..."})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-# 静态文件由 Flask 自动处理
-
 if __name__ == '__main__':
-    # 支持环境变量配置
     port = int(os.environ.get('MONITOR_PORT', 8080))
     debug = os.environ.get('MONITOR_DEBUG', 'false').lower() == 'true'
     env = os.environ.get('MONITOR_ENV', 'production')
     
-    print(f"🦊 OpenClaw Monitor starting...")
+    print(f"🦊 OpenClaw Monitor UI starting...")
     print(f"   Environment: {env}")
     print(f"   Port: {port}")
     print(f"   Debug: {debug}")
+    print(f"   Agent URL: {MONITOR_AGENT_URL}")
     
     app.run(host='0.0.0.0', port=port, debug=debug)

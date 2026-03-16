@@ -1,9 +1,15 @@
 #!/bin/bash
-# OpenClaw Monitor 启动脚本
+# OpenClaw Monitor 生产环境启动脚本
+# 运行在目标服务器上，从远程 Agent API 获取数据
 
 APP_DIR="/home/ubuntu/openclaw_tools/monitor/api"
 LOG_FILE="/home/ubuntu/openclaw_tools/monitor/monitor.log"
 PID_FILE="/tmp/openclaw_monitor.pid"
+PORT=8080
+
+# Agent API 地址（本地 OpenClaw 服务器）
+# 需要根据实际情况修改
+AGENT_URL=${MONITOR_AGENT_URL:-"http://localhost:9090"}
 
 case "$1" in
     start)
@@ -14,9 +20,12 @@ case "$1" in
         
         echo "启动 OpenClaw Monitor..."
         cd "$APP_DIR"
+        export MONITOR_PORT=$PORT
+        export MONITOR_AGENT_URL="$AGENT_URL"
         nohup python3 app.py >> "$LOG_FILE" 2>&1 &
         echo $! > "$PID_FILE"
         echo "Monitor 已启动 (PID: $!)，访问 http://$(hostname -I | awk '{print $1}'):8080"
+        echo "Agent URL: $AGENT_URL"
         ;;
         
     stop)
