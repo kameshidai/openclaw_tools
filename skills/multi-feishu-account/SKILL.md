@@ -46,7 +46,9 @@ description: |
 
 ## 配置文件
 
-`~/.openclaw/openclaw.json`
+### 主配置文件
+
+`~/.openclaw/openclaw.json` - 系统配置，包含账号和绑定：
 
 ```json
 {
@@ -56,46 +58,37 @@ description: |
       "defaultAccount": "default",
       "connectionMode": "websocket",
       "accounts": {
-        "default": {
-          "appId": "cli_xxx",
-          "appSecret": "xxx",
-          "botName": "主账户"
-        },
-        "account2": {
-          "appId": "cli_xxx",
-          "appSecret": "xxx",
-          "botName": "账户2"
-        },
-        "account3": {
-          "appId": "cli_xxx",
-          "appSecret": "xxx",
-          "botName": "技能存储"
-        }
+        "default": { "appId": "cli_xxx", "appSecret": "xxx", "botName": "主账户" },
+        "account2": { "appId": "cli_xxx", "appSecret": "xxx", "botName": "账户2" },
+        "account3": { "appId": "cli_xxx", "appSecret": "xxx", "botName": "技能存储" }
       }
     }
   },
   "bindings": [
     {
       "agentId": "sales-assistant",
-      "match": {
-        "channel": "feishu",
-        "accountId": "account3"
-      },
+      "match": { "channel": "feishu", "accountId": "account3" },
       "userId": "ou_xxxxxxxxxxxxxxxxxxxxxxxx"
     }
+  ]
+}
+```
+
+### 绑定规则文件
+
+`~/.openclaw/feishu_bindings.json` - 绑定规则和验证码（不影响系统运行）：
+
+```json
+{
+  "description": "飞书通道用户绑定规则",
+  "rules": [
+    "每个飞书通道必须绑定用户ID",
+    "非绑定用户的消息将被忽略",
+    "换绑需要验证码"
   ],
-  "_bindingRules": {
-    "feishu": {
-      "description": "飞书通道用户绑定规则",
-      "rules": [
-        "每个飞书通道必须绑定用户ID",
-        "非绑定用户的消息将被忽略",
-        "换绑需要验证码，仅main智能体可查询"
-      ],
-      "verificationCode": "changefeishu_2026",
-      "codeAccess": ["main"]
-    }
-  }
+  "verificationCode": "changefeishu_2026",
+  "codeAccess": ["main"],
+  "note": "子智能体不能查询或回复验证码"
 }
 ```
 
