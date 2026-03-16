@@ -9,6 +9,8 @@ OpenClaw Monitor Agent
 import os
 import json
 import socket
+import time
+import threading
 from datetime import datetime
 from flask import Flask, jsonify
 from flask_cors import CORS
@@ -16,49 +18,53 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# 缓存文件路径
+# 配置
 CACHE_DIR = os.path.expanduser("~/.openclaw/monitor_cache")
-CACHE_FILE = os.path.join(CACHE_DIR, "version_cache.json")
-CACHE_DURATION = 24 * 60 * 60  # 24小时
+CACHE_FILE = os.path.join(CACHE_DIR, "status_cache.json")
+GATEWAY_UPDATE_INTERVAL = 9 * 60  # 9分钟
+CACHE_DURATION = 15 * 60  # 15分钟
+
+# 全局状态缓存
+status_cache = {
+    "version": "OpenClaw",
+    "gateway": {"running": False, "output": ""},
+    "last_update": 0
+}
+cache_lock = threading.Lock()
 
 def ensure_cache_dir():
     """确保缓存目录存在"""
     if not os.path.exists(CACHE_DIR):
         os.makedirs(CACHE_DIR)
 
-def read_cache():
-    """读取缓存"""
+def save_cache():
+    """保存缓存到文件"""
+    try:
+        ensure_cache_dir()
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(status_cache, f, indent=2)
+    except:
+        pass
+
+def load_cache():
+    """从文件加载缓存"""
     try:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, 'r') as f:
-                data = json.load(f)
-                # 检查是否过期
-                if time.time() - data.get('timestamp', 0) < CACHE_DURATION:
-                    return data
+                return json.load(f)
     except:
         pass
     return None
 
-def write_cache(data):
-    """写入缓存"""
-    try:
-        ensure_cache_dir()
-        data['timestamp'] = time.time()
-        with open(CACHE_FILE, 'w') as f:
-            json.dump(data, f)
-    except:
-        pass
-
 def get_openclaw_version():
     """获取 OpenClaw 版本 - 从缓存或读取"""
-    import time
+    global status_cache
     
-    # 尝试从缓存读取
-    cache = read_cache()
-    if cache and 'version' in cache:
-        return cache['version']
+    with cache_lock:
+        if status_cache.get("version") and status_cache.get("version") != "OpenClaw":
+            return status_cache["version"]
     
-    # 缓存不存在或过期，重新获取
+    # 重新获取
     version = "OpenClaw"
     try:
         import glob
@@ -76,23 +82,54 @@ def get_openclaw_version():
     except:
         pass
     
-    # 写入缓存
-    write_cache({'version': version})
+    with cache_lock:
+        status_cache["version"] = version
+    
+    save_cache()
     return version
 
-def get_gateway_status():
-    """快速检查 Gateway 状态 - 通过端口检查"""
+def check_gateway_port():
+    """检查 Gateway 端口"""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
         result = sock.connect_ex(('127.0.0.1', 31245))
         sock.close()
-        return {
-            "running": result == 0,
-            "output": "Gateway port 31245 " + ("open" if result == 0 else "closed")
-        }
+        return result == 0
     except:
-        return {"running": False, "output": "Unable to check gateway port"}
+        return False
+
+def update_gateway_status():
+    """后台任务：更新 Gateway 状态"""
+    global status_cache
+    
+    print("🔄 正在更新 Gateway 状态...")
+    
+    is_running = check_gateway_port()
+    
+    with cache_lock:
+        status_cache["gateway"] = {
+            "running": is_running,
+            "output": "Gateway port 31245 " + ("open" if is_running else "closed")
+        }
+        status_cache["last_update"] = time.time()
+    
+    save_cache()
+    print(f"✅ Gateway 状态已更新: {'running' if is_running else 'stopped'}")
+
+def get_gateway_status():
+    """获取 Gateway 状态 - 从缓存"""
+    global status_cache
+    
+    current_time = time.time()
+    
+    with cache_lock:
+        # 检查是否需要更新
+        if current_time - status_cache.get("last_update", 0) > GATEWAY_UPDATE_INTERVAL:
+            # 返回旧数据，同时触发后台更新
+            threading.Thread(target=update_gateway_status, daemon=True).start()
+        
+        return status_cache.get("gateway", {"running": False, "output": "Not initialized"})
 
 def get_agents_status():
     """获取智能体状态 - 从工作目录读取"""
@@ -119,7 +156,7 @@ def get_agents_status():
 def get_system_metrics():
     """获取系统指标"""
     try:
-        # CPU 使用率
+        # CPU
         cpu_usage = "0%"
         try:
             with open('/proc/stat', 'r') as f:
@@ -131,7 +168,7 @@ def get_system_metrics():
         except:
             pass
 
-        # 内存使用
+        # 内存
         mem_total, mem_available = 0, 0
         try:
             with open('/proc/meminfo', 'r') as f:
@@ -145,7 +182,7 @@ def get_system_metrics():
         except:
             mem_usage = "N/A"
 
-        # 磁盘使用
+        # 磁盘
         disk_usage = "N/A"
         try:
             import subprocess
@@ -165,54 +202,58 @@ def get_system_metrics():
                 seconds = int(float(f.read().split()[0]))
             days, remainder = divmod(seconds, 86400)
             hours, minutes = divmod(remainder, 3600)
-            if days > 0:
-                uptime = f"{days}d {hours}h"
-            else:
-                uptime = f"{hours}h {minutes//60}m"
+            uptime = f"{days}d {hours}h" if days > 0 else f"{hours}h {minutes//60}m"
         except:
             pass
 
-        return {
-            "cpu": cpu_usage,
-            "memory": mem_usage,
-            "disk": disk_usage,
-            "uptime": uptime
-        }
-    except Exception as e:
-        return {
-            "cpu": "N/A",
-            "memory": "N/A",
-            "disk": "N/A",
-            "uptime": "N/A"
-        }
+        return {"cpu": cpu_usage, "memory": mem_usage, "disk": disk_usage, "uptime": uptime}
+    except:
+        return {"cpu": "N/A", "memory": "N/A", "disk": "N/A", "uptime": "N/A"}
+
+# 初始化时加载缓存
+cached = load_cache()
+if cached:
+    with cache_lock:
+        status_cache = cached
+    print(f"📦 已加载缓存，上次更新: {datetime.fromtimestamp(status_cache.get('last_update', 0))}")
+
+# 启动时立即更新一次 Gateway 状态
+update_gateway_status()
 
 @app.route('/health')
 def health():
-    """健康检查"""
     return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
 
 @app.route('/api/status')
 def status():
     """获取完整状态"""
+    with cache_lock:
+        last_update = status_cache.get("last_update", 0)
+    
     return jsonify({
         "version": get_openclaw_version(),
-        "status": get_gateway_status(),
-        "gateway": get_gateway_status(),
+        "status": status_cache.get("gateway", {}),
+        "gateway": status_cache.get("gateway", {}),
         "agents": get_agents_status(),
         "metrics": get_system_metrics(),
         "timestamp": datetime.now().isoformat(),
+        "last_gateway_update": datetime.fromtimestamp(last_update).isoformat(),
         "hostname": os.uname().nodename
     })
 
 @app.route('/api/agents')
 def agents():
-    """仅获取智能体状态"""
     return jsonify(get_agents_status())
 
 @app.route('/api/metrics')
 def metrics():
-    """仅获取系统指标"""
     return jsonify(get_system_metrics())
+
+@app.route('/api/gateway-update', methods=['POST'])
+def manual_update():
+    """手动触发 Gateway 状态更新"""
+    threading.Thread(target=update_gateway_status, daemon=True).start()
+    return jsonify({"success": True, "message": "正在更新..."})
 
 @app.route('/api/restart', methods=['POST'])
 def restart():
@@ -224,13 +265,14 @@ def restart():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
+        # 立即更新状态
+        threading.Thread(target=update_gateway_status, daemon=True).start()
         return jsonify({"success": True, "message": "OpenClaw Gateway 重启中..."})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/cache/clear', methods=['POST'])
 def clear_cache():
-    """清除缓存"""
     try:
         if os.path.exists(CACHE_FILE):
             os.remove(CACHE_FILE)
@@ -239,11 +281,10 @@ def clear_cache():
         return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == '__main__':
-    import time
     port = int(os.environ.get('MONITOR_AGENT_PORT', 9090))
 
     print(f"🦊 OpenClaw Monitor Agent starting on port {port}")
     print(f"📍 Status API: http://localhost:{port}/api/status")
-    print(f"📦 Cache file: {CACHE_FILE}")
+    print(f"⏱️ Gateway 更新间隔: {GATEWAY_UPDATE_INTERVAL//60} 分钟")
 
     app.run(host='0.0.0.0', port=port, debug=False)

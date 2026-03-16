@@ -49,7 +49,7 @@
         <section class="agents-section">
             <div class="section-header">
                 <h2>🤖 智能体状态</h2>
-                <span class="refresh-info">每 2 分钟自动刷新</span>
+                <span class="refresh-info">每 10 分钟自动刷新</span>
             </div>
             <div class="agents-grid" id="agentsGrid">
                 <!-- Agent cards will be loaded here -->
@@ -93,6 +93,27 @@
             </div>
         </div>
     </footer>
+
+    <!-- Restart Confirm Modal -->
+    <div class="modal-overlay" id="restartModal" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>⚠️ 重启确认</h3>
+            </div>
+            <div class="modal-body">
+                <p>确定要重启 OpenClaw Gateway 吗？</p>
+                <p class="warning-text">此操作将中断当前运行的所有服务。</p>
+                <div class="form-group">
+                    <label>请输入 <code>checkok</code> 确认:</label>
+                    <input type="text" id="confirmInput" placeholder="输入 checkok" autocomplete="off">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="cancelRestart">取消</button>
+                <button class="btn-danger" id="confirmRestart" disabled>确认重启</button>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/js/app.js"></script>
 </body>

@@ -4,7 +4,7 @@
 
 // 配置
 const CONFIG = {
-    refreshInterval: 2 * 60 * 1000, // 2分钟刷新
+    refreshInterval: 10 * 60 * 1000, // 10分钟刷新
     timeUpdateInterval: 1000 // 1秒更新时间
 };
 
@@ -27,7 +27,12 @@ const elements = {
     cpuMetric: document.getElementById('cpuMetric'),
     memMetric: document.getElementById('memMetric'),
     diskMetric: document.getElementById('diskMetric'),
-    uptimeMetric: document.getElementById('uptimeMetric')
+    uptimeMetric: document.getElementById('uptimeMetric'),
+    // Modal elements
+    restartModal: document.getElementById('restartModal'),
+    confirmInput: document.getElementById('confirmInput'),
+    cancelRestart: document.getElementById('cancelRestart'),
+    confirmRestart: document.getElementById('confirmRestart')
 };
 
 // 初始化
@@ -67,8 +72,36 @@ function bindEvents() {
     // 主题切换
     elements.themeToggle.addEventListener('click', toggleTheme);
     
-    // 重启按钮
-    elements.restartBtn.addEventListener('click', handleRestart);
+    // 重启按钮 - 显示确认对话框
+    elements.restartBtn.addEventListener('click', () => {
+        showRestartModal();
+    });
+    
+    // 取消重启
+    elements.cancelRestart.addEventListener('click', hideRestartModal);
+    
+    // 确认输入框 - 实时验证
+    elements.confirmInput.addEventListener('input', (e) => {
+        const value = e.target.value.trim().toLowerCase();
+        elements.confirmRestart.disabled = value !== 'checkok';
+    });
+    
+    // 确认重启
+    elements.confirmRestart.addEventListener('click', executeRestart);
+    
+    // 点击遮罩关闭
+    elements.restartModal.addEventListener('click', (e) => {
+        if (e.target === elements.restartModal) {
+            hideRestartModal();
+        }
+    });
+    
+    // 回车确认
+    elements.confirmInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && elements.confirmInput.value.trim().toLowerCase() === 'checkok') {
+            executeRestart();
+        }
+    });
     
     // 登出按钮
     elements.logoutBtn.addEventListener('click', handleLogout);
@@ -177,11 +210,27 @@ function applyTheme(theme) {
     elements.themeIcon.textContent = theme === 'light' ? '🌙' : '☀️';
 }
 
-async function handleRestart() {
-    if (!confirm('确定要重启 OpenClaw 吗？')) {
+function showRestartModal() {
+    elements.restartModal.style.display = 'flex';
+    elements.confirmInput.value = '';
+    elements.confirmRestart.disabled = true;
+    elements.confirmInput.focus();
+}
+
+function hideRestartModal() {
+    elements.restartModal.style.display = 'none';
+    elements.confirmInput.value = '';
+    elements.confirmRestart.disabled = true;
+}
+
+async function executeRestart() {
+    const confirmValue = elements.confirmInput.value.trim().toLowerCase();
+    if (confirmValue !== 'checkok') {
+        alert('请输入正确的确认文字');
         return;
     }
     
+    hideRestartModal();
     showLoading();
     
     try {
@@ -189,14 +238,13 @@ async function handleRestart() {
         const data = await response.json();
         
         if (data.success) {
-            alert('OpenClaw 正在重启...');
-            // 3秒后刷新页面
-            setTimeout(() => location.reload(), 3000);
+            alert('✅ OpenClaw 正在重启，页面将在 5 秒后刷新...');
+            setTimeout(() => location.reload(), 5000);
         } else {
-            alert('重启失败: ' + (data.error || '未知错误'));
+            alert('❌ 重启失败: ' + (data.error || '未知错误'));
         }
     } catch (e) {
-        alert('请求失败，请重试');
+        alert('❌ 请求失败，请重试');
     } finally {
         hideLoading();
     }
