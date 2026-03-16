@@ -215,4 +215,14 @@ def restart():
 # 静态文件由 Flask 自动处理
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=False)
+    # 支持环境变量配置
+    port = int(os.environ.get('MONITOR_PORT', 8080))
+    debug = os.environ.get('MONITOR_DEBUG', 'false').lower() == 'true'
+    env = os.environ.get('MONITOR_ENV', 'production')
+    
+    print(f"🦊 OpenClaw Monitor starting...")
+    print(f"   Environment: {env}")
+    print(f"   Port: {port}")
+    print(f"   Debug: {debug}")
+    
+    app.run(host='0.0.0.0', port=port, debug=debug)
