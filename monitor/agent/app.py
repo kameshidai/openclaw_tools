@@ -9,6 +9,7 @@ OpenClaw Monitor Agent
 import os
 import json
 import socket
+import subprocess
 import time
 import threading
 from datetime import datetime
@@ -132,7 +133,7 @@ def get_gateway_status():
         return status_cache.get("gateway", {"running": False, "output": "Not initialized"})
 
 def get_agents_status():
-    """获取智能体状态 - 从工作目录读取"""
+    """获取智能体状态 - 从 OpenClaw sessions API 读取"""
     # 智能体别名映射
     ALIAS_MAP = {
         "main": "运维",
@@ -140,26 +141,84 @@ def get_agents_status():
         "finance": "财务"
     }
     
+    # 智能体 ID 映射 (workspace -> agentId)
+    AGENT_ID_MAP = {
+        "main": "openclaw-control-ui",
+        "sales": "sales-assistant",
+        "finance": "finance-assistant"
+    }
+    
     agents = []
+    current_time = time.time()
+    
     try:
+        # 获取所有 sessions
+        result = subprocess.run(
+            ["openclaw", "sessions", "--all-agents", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        sessions_data = {}
+        if result.returncode == 0:
+            try:
+                data = json.loads(result.stdout)
+                # 按智能体分组，取最新的 session
+                for session in data.get("sessions", []):
+                    agent_id = session.get("agentId", "")
+                    if agent_id not in sessions_data:
+                        sessions_data[agent_id] = session
+            except:
+                pass
+        
+        # 检查 workspace 目录
         workspace_dir = os.path.expanduser("~/.openclaw")
         for name in os.listdir(workspace_dir):
             if name.startswith("workspace-"):
                 agent_name = name.replace("workspace-", "")
                 alias = ALIAS_MAP.get(agent_name, agent_name)
+                agent_id = AGENT_ID_MAP.get(agent_name, "")
+                
+                # 获取该智能体的 session 数据
+                session = sessions_data.get(agent_id, {})
+                updated_at = session.get("updatedAt", 0) / 1000  # ms -> s
+                
+                # 判断状态
+                if updated_at > 0:
+                    idle_seconds = current_time - updated_at
+                    if idle_seconds < 300:  # 5 分钟内活动
+                        status = "busy"
+                        last_active = f"{int(idle_seconds)}秒前"
+                    else:
+                        status = "idle"
+                        if idle_seconds < 3600:
+                            last_active = f"{int(idle_seconds // 60)}分钟前"
+                        elif idle_seconds < 86400:
+                            last_active = f"{int(idle_seconds // 3600)}小时前"
+                        else:
+                            last_active = f"{int(idle_seconds // 86400)}天前"
+                else:
+                    status = "idle"
+                    last_active = "无活动记录"
+                
                 agents.append({
                     "name": agent_name,
                     "alias": alias,
-                    "status": "running",
-                    "last_active": "recently"
+                    "status": status,
+                    "last_active": last_active
                 })
-    except:
-        pass
+    except Exception as e:
+        print(f"获取智能体状态失败: {e}")
+        # 返回默认值
+        for agent_name, alias in ALIAS_MAP.items():
+            agents.append({
+                "name": agent_name,
+                "alias": alias,
+                "status": "idle",
+                "last_active": "未知"
+            })
     
-    if not agents:
-        agents = [
-            {"name": "main", "alias": "运维", "status": "running", "last_active": "recently"}
-        ]
     return agents
 
 def get_system_metrics():

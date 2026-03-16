@@ -169,9 +169,17 @@ function renderData(data) {
 }
 
 function renderAgents(agents) {
+    const STATUS_MAP = {
+        'idle': { text: '● 空闲', class: 'status-idle' },
+        'busy': { text: '● 忙碌', class: 'status-busy' },
+        'error': { text: '● 异常', class: 'status-error' }
+    };
+    
     elements.agentsGrid.innerHTML = agents.map(agent => {
         const displayName = agent.alias || agent.name;
         const nameNote = agent.alias ? `<span class="name-note">(${agent.name})</span>` : '';
+        const statusInfo = STATUS_MAP[agent.status] || STATUS_MAP['idle'];
+        
         return `
         <div class="agent-card">
             <div class="agent-header">
@@ -179,8 +187,8 @@ function renderAgents(agents) {
                     <span>🤖</span>
                     ${escapeHtml(displayName)} ${nameNote}
                 </div>
-                <span class="agent-status ${agent.status}">
-                    ${agent.status === 'running' ? '● 运行中' : '○ 已停止'}
+                <span class="agent-status ${statusInfo.class}">
+                    ${statusInfo.text}
                 </span>
             </div>
             <div class="agent-meta">

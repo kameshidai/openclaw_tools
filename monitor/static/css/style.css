@@ -406,12 +406,20 @@ body {
     border-radius: 12px;
 }
 
-.agent-status.running {
+/* 空闲 - 蓝色 */
+.agent-status.status-idle {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+}
+
+/* 忙碌 - 绿色 */
+.agent-status.status-busy {
     background: rgba(16, 185, 129, 0.1);
     color: var(--success-color);
 }
 
-.agent-status.stopped {
+/* 异常 - 红色 */
+.agent-status.status-error {
     background: rgba(239, 68, 68, 0.1);
     color: var(--danger-color);
 }
